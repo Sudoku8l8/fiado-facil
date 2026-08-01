@@ -1,8 +1,9 @@
 // ============================================================
 // Flash Fiado — useAuth Hook
-// Sprint 1: Autenticación con email/password
+// Autenticación con email/password
+// Optimizado: nunca usar storeName fallback incorrecto
 // ============================================================
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -19,66 +20,119 @@ import { auth, db } from '../lib/firebase';
 import { useAuthStore } from '../store/authStore';
 import type { AppUser } from '../types';
 
+// Constantes de timeout
+const AUTH_INIT_TIMEOUT_MS = 3000;      // Máx espera para Firebase Auth init
+const PROFILE_NET_TIMEOUT_MS = 4000;    // Red con timeout para cargar perfil
+const PROFILE_RETRY_DELAY_MS = 2000;    // Retry si falló
+const PROFILE_MAX_RETRIES = 3;          // Reintentos máximos
+
 export function useAuth() {
   const {
     firebaseUser, appUser, loading, error,
     setFirebaseUser, setAppUser, setLoading, setError, reset,
   } = useAuthStore();
 
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   // Escuchar cambios de estado de autenticación
   useEffect(() => {
+    let authResolved = false;
+
+    // Timeout de seguridad: si Firebase Auth no responde, mostrar Login
+    const authTimeout = setTimeout(() => {
+      if (!authResolved) {
+        authResolved = true;
+        console.warn(`[useAuth] Firebase Auth no respondió en ${AUTH_INIT_TIMEOUT_MS}ms`);
+        setLoading(false);
+      }
+    }, AUTH_INIT_TIMEOUT_MS);
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      authResolved = true;
+      clearTimeout(authTimeout);
+
       if (fbUser) {
         setFirebaseUser({ uid: fbUser.uid, email: fbUser.email });
-        // Cargar datos del usuario desde Firestore (con timeout de seguridad para evitar spinner infinito)
-        try {
-          await loadAppUser(fbUser.uid);
-        } catch (err) {
-          console.error('[useAuth] loadAppUser failed:', err);
-        }
+        // Cargar perfil REAL desde Firestore (con reintentos)
+        await loadAppUserWithRetries(fbUser.uid);
       } else {
         reset();
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(authTimeout);
+      clearTimeout(retryTimerRef.current);
+      unsubscribe();
+    };
   }, []);
 
-  // Cargar perfil con timeout de 3.5 segundos para evitar cuelgues si AdBlock bloquea Firestore
-  async function loadAppUser(uid: string) {
+  /**
+   * Cargar perfil con reintentos.
+   * NUNCA asigna un storeName inventado. Si no puede cargar, retorna null
+   * y el usuario verá la pantalla de Setup (que es correcto para un nuevo usuario real).
+   */
+  async function loadAppUserWithRetries(uid: string, attempt = 1): Promise<void> {
+    const profile = await loadAppUser(uid);
+
+    if (profile) {
+      setAppUser(profile);
+      return;
+    }
+
+    // Si no se pudo cargar y aún quedan reintentos, programar uno
+    if (attempt < PROFILE_MAX_RETRIES) {
+      console.warn(`[useAuth] Perfil no encontrado (intento ${attempt}/${PROFILE_MAX_RETRIES}), reintentando en ${PROFILE_RETRY_DELAY_MS}ms...`);
+      return new Promise<void>((resolve) => {
+        retryTimerRef.current = setTimeout(async () => {
+          await loadAppUserWithRetries(uid, attempt + 1);
+          resolve();
+        }, PROFILE_RETRY_DELAY_MS);
+      });
+    }
+
+    // Tras agotar reintentos: NO asignar un perfil falso.
+    // appUser queda null → App muestra pantalla de Setup,
+    // lo cual es correcto si el usuario realmente no tiene perfil.
+    console.warn('[useAuth] No se pudo cargar perfil tras todos los reintentos. Mostrando Setup.');
+  }
+
+  /**
+   * Cargar perfil de usuario desde Firestore.
+   * Retorna el AppUser si existe, null si no.
+   */
+  async function loadAppUser(uid: string): Promise<AppUser | null> {
     const userRef = doc(db, 'usuarios', uid);
 
+    // 1. Intentar caché local (instantáneo en dispositivos con sesión previa)
     try {
-      // Intentar primero desde caché local (instancia sin bloqueo de red)
-      const cacheSnap = await getDocFromCache(userRef).catch(() => null);
-      if (cacheSnap && cacheSnap.exists()) {
-        setAppUser(cacheSnap.data() as AppUser);
-        return;
+      const cacheSnap = await getDocFromCache(userRef);
+      if (cacheSnap.exists()) {
+        return cacheSnap.data() as AppUser;
       }
+    } catch {
+      // No hay caché (normal en nuevo dispositivo)
+    }
 
-      // Si no está en caché, intentar red con timeout de 3.5 segundos
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Firestore timeout - posible bloqueo de red/AdBlock')), 3500)
+    // 2. Intentar red
+    try {
+      const netTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore profile timeout')), PROFILE_NET_TIMEOUT_MS)
       );
-
-      const snap = await Promise.race([getDoc(userRef), timeoutPromise]);
+      const snap = await Promise.race([getDoc(userRef), netTimeout]);
       if (snap.exists()) {
-        setAppUser(snap.data() as AppUser);
+        return snap.data() as AppUser;
       }
+      // Documento no existe → usuario nuevo sin perfil
+      return null;
     } catch (err) {
-      console.warn('[useAuth] No se pudo cargar el perfil desde Firestore (bloqueo de red o sin conexión):', err);
-      // Crear perfil fallback en memoria temporal si la red está bloqueada por AdBlock
-      setAppUser({
-        uid,
-        nombre: 'Usuario',
-        rol: 'dueño',
-        storeName: 'Mi Bodega',
-      });
+      console.warn('[useAuth] Error de red al cargar perfil:', err);
+      return null;
     }
   }
 
-  // Crear perfil de usuario en Firestore (primer login)
+  // Crear perfil de usuario en Firestore (primer login / Setup)
   async function createUserProfile(uid: string, nombre: string, storeName: string) {
     const profile: AppUser = {
       uid,
@@ -115,6 +169,7 @@ export function useAuth() {
   // Sign Out
   async function signOut() {
     try {
+      clearTimeout(retryTimerRef.current);
       await firebaseSignOut(auth);
       reset();
     } catch (err) {
