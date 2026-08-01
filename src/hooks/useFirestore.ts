@@ -48,6 +48,10 @@ export function useFirestore() {
     return onSnapshot(
       q,
       (snapshot) => {
+        const currentClientsMap = new Map(
+          useClientStore.getState().clients.map((c) => [c.id, c])
+        );
+
         const clients: Client[] = snapshot.docs.map((d) => {
           const data = d.data({ serverTimestamps: 'estimate' });
           const rawDate = data.fechaUltimoMovimiento;
@@ -58,12 +62,19 @@ export function useFirestore() {
             lastMoveDate = rawDate;
           }
 
+          const existing = currentClientsMap.get(d.id);
+          // Si deudaTotal es undefined por un increment() local pendiente en Firestore, mantener el saldo local optimista
+          const debtVal =
+            typeof data.deudaTotal === 'number' && !isNaN(data.deudaTotal)
+              ? data.deudaTotal
+              : existing?.deudaTotal ?? 0;
+
           return {
             id: d.id,
-            nombre: data.nombre,
-            deudaTotal: data.deudaTotal ?? 0,
-            fechaUltimoMovimiento: lastMoveDate,
-            storeName: data.storeName,
+            nombre: data.nombre ?? existing?.nombre ?? 'Cliente',
+            deudaTotal: debtVal,
+            fechaUltimoMovimiento: lastMoveDate || existing?.fechaUltimoMovimiento || null,
+            storeName: data.storeName ?? storeName,
           };
         });
         setClients(clients);
@@ -237,6 +248,9 @@ export function useFirestore() {
 
       const clientRef = doc(db, 'clientes', clientId);
 
+      // Actualización optimista instantánea en el store local (0ms UI latency)
+      useClientStore.getState().updateClientDebt(clientId, params.monto);
+
       const writeTimeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Write timeout')), 3000)
       );
@@ -293,6 +307,9 @@ export function useFirestore() {
 
       const movRef = doc(collection(db, 'clientes', params.clientId, 'movimientos'));
       const clientRef = doc(db, 'clientes', params.clientId);
+
+      // Actualización optimista instantánea en el store local (0ms UI latency)
+      useClientStore.getState().updateClientDebt(params.clientId, -adjustedAmount);
 
       const writeTimeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Write timeout')), 3000)

@@ -16,6 +16,7 @@ interface ClientState {
   setMovements:     (movements: Movement[]) => void;
   setLoading:       (loading: boolean) => void;
   setSearchQuery:   (q: string) => void;
+  updateClientDebt: (clientId: string, delta: number) => void;
 
   // Totales derivados
   getTotalDebt:     () => number;
@@ -34,6 +35,19 @@ export const useClientStore = create<ClientState>((set, get) => ({
   setMovements:      (movements) => set({ movements }),
   setLoading:        (loading) => set({ loading }),
   setSearchQuery:    (q) => set({ searchQuery: q }),
+
+  updateClientDebt: (clientId, delta) =>
+    set((state) => ({
+      clients: state.clients.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              deudaTotal: Math.max(0, c.deudaTotal + delta),
+              fechaUltimoMovimiento: new Date(),
+            }
+          : c
+      ),
+    })),
 
   getTotalDebt: () =>
     get().clients.reduce((sum, c) => sum + (c.deudaTotal || 0), 0),

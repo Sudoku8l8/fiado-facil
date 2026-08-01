@@ -16,7 +16,7 @@ import './ClientDetail.css';
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
-  const { subscribeMovements, addPayment, deleteClient } = useFirestore();
+  const { subscribeClients, subscribeMovements, addPayment, deleteClient } = useFirestore();
   const { clients, movements, setMovements } = useClientStore();
 
   const client = clients.find((c) => c.id === clientId);
@@ -30,6 +30,12 @@ export function ClientDetail() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading]     = useState(false);
   const [deleteError, setDeleteError]         = useState('');
+
+  // Suscribirse a la lista de clientes para mantener sincronizada la deuda total
+  useEffect(() => {
+    const unsub = subscribeClients();
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (!clientId) return;
