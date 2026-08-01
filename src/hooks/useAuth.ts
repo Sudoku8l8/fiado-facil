@@ -1,9 +1,8 @@
 // ============================================================
 // Flash Fiado — useAuth Hook
-// Autenticación con email/password
-// Optimizado: nunca usar storeName fallback incorrecto
+// Autenticación con email/password y sincronización en tiempo real de perfil
 // ============================================================
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -11,20 +10,14 @@ import {
 } from 'firebase/auth';
 import {
   doc,
-  getDoc,
   getDocFromCache,
   setDoc,
+  onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { useAuthStore } from '../store/authStore';
 import type { AppUser } from '../types';
-
-// Constantes de timeout
-const AUTH_INIT_TIMEOUT_MS = 3000;      // Máx espera para Firebase Auth init
-const PROFILE_NET_TIMEOUT_MS = 4000;    // Red con timeout para cargar perfil
-const PROFILE_RETRY_DELAY_MS = 2000;    // Retry si falló
-const PROFILE_MAX_RETRIES = 3;          // Reintentos máximos
 
 export function useAuth() {
   const {
@@ -32,107 +25,59 @@ export function useAuth() {
     setFirebaseUser, setAppUser, setLoading, setError, reset,
   } = useAuthStore();
 
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Escuchar cambios de estado de autenticación
+  // Escuchar estado de autenticación y sincronizar el perfil de usuario en tiempo real
   useEffect(() => {
-    let authResolved = false;
+    let unsubProfile: (() => void) | undefined;
 
-    // Timeout de seguridad: si Firebase Auth no responde, mostrar Login
-    const authTimeout = setTimeout(() => {
-      if (!authResolved) {
-        authResolved = true;
-        console.warn(`[useAuth] Firebase Auth no respondió en ${AUTH_INIT_TIMEOUT_MS}ms`);
-        setLoading(false);
-      }
-    }, AUTH_INIT_TIMEOUT_MS);
-
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      authResolved = true;
-      clearTimeout(authTimeout);
-
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         setFirebaseUser({ uid: fbUser.uid, email: fbUser.email });
-        // Cargar perfil REAL desde Firestore (con reintentos)
-        await loadAppUserWithRetries(fbUser.uid);
+
+        const userRef = doc(db, 'usuarios', fbUser.uid);
+
+        // 1. Intentar respuesta ultra-rápida desde caché local (dispositivos previamente usados)
+        try {
+          const cacheSnap = await getDocFromCache(userRef);
+          if (cacheSnap.exists()) {
+            setAppUser(cacheSnap.data() as AppUser);
+            setLoading(false);
+          }
+        } catch {
+          // Sin caché local aún (dispositivo nuevo)
+        }
+
+        // 2. Suscribirse en tiempo real al documento de perfil del usuario en Firestore
+        unsubProfile = onSnapshot(
+          userRef,
+          (snap) => {
+            if (snap.exists()) {
+              setAppUser(snap.data() as AppUser);
+            } else {
+              setAppUser(null);
+            }
+            setLoading(false);
+          },
+          (err) => {
+            console.warn('[useAuth] Error al sincronizar el perfil desde Firestore:', err);
+            setLoading(false);
+          }
+        );
       } else {
+        if (unsubProfile) {
+          unsubProfile();
+          unsubProfile = undefined;
+        }
         reset();
       }
-      setLoading(false);
     });
 
     return () => {
-      clearTimeout(authTimeout);
-      clearTimeout(retryTimerRef.current);
-      unsubscribe();
+      if (unsubProfile) unsubProfile();
+      unsubAuth();
     };
   }, []);
 
-  /**
-   * Cargar perfil con reintentos.
-   * NUNCA asigna un storeName inventado. Si no puede cargar, retorna null
-   * y el usuario verá la pantalla de Setup (que es correcto para un nuevo usuario real).
-   */
-  async function loadAppUserWithRetries(uid: string, attempt = 1): Promise<void> {
-    const profile = await loadAppUser(uid);
-
-    if (profile) {
-      setAppUser(profile);
-      return;
-    }
-
-    // Si no se pudo cargar y aún quedan reintentos, programar uno
-    if (attempt < PROFILE_MAX_RETRIES) {
-      console.warn(`[useAuth] Perfil no encontrado (intento ${attempt}/${PROFILE_MAX_RETRIES}), reintentando en ${PROFILE_RETRY_DELAY_MS}ms...`);
-      return new Promise<void>((resolve) => {
-        retryTimerRef.current = setTimeout(async () => {
-          await loadAppUserWithRetries(uid, attempt + 1);
-          resolve();
-        }, PROFILE_RETRY_DELAY_MS);
-      });
-    }
-
-    // Tras agotar reintentos: NO asignar un perfil falso.
-    // appUser queda null → App muestra pantalla de Setup,
-    // lo cual es correcto si el usuario realmente no tiene perfil.
-    console.warn('[useAuth] No se pudo cargar perfil tras todos los reintentos. Mostrando Setup.');
-  }
-
-  /**
-   * Cargar perfil de usuario desde Firestore.
-   * Retorna el AppUser si existe, null si no.
-   */
-  async function loadAppUser(uid: string): Promise<AppUser | null> {
-    const userRef = doc(db, 'usuarios', uid);
-
-    // 1. Intentar caché local (instantáneo en dispositivos con sesión previa)
-    try {
-      const cacheSnap = await getDocFromCache(userRef);
-      if (cacheSnap.exists()) {
-        return cacheSnap.data() as AppUser;
-      }
-    } catch {
-      // No hay caché (normal en nuevo dispositivo)
-    }
-
-    // 2. Intentar red
-    try {
-      const netTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Firestore profile timeout')), PROFILE_NET_TIMEOUT_MS)
-      );
-      const snap = await Promise.race([getDoc(userRef), netTimeout]);
-      if (snap.exists()) {
-        return snap.data() as AppUser;
-      }
-      // Documento no existe → usuario nuevo sin perfil
-      return null;
-    } catch (err) {
-      console.warn('[useAuth] Error de red al cargar perfil:', err);
-      return null;
-    }
-  }
-
-  // Crear perfil de usuario en Firestore (primer login / Setup)
+  // Crear perfil de usuario en Firestore (solo en el primer registro / Setup inicial)
   async function createUserProfile(uid: string, nombre: string, storeName: string) {
     const profile: AppUser = {
       uid,
@@ -146,13 +91,13 @@ export function useAuth() {
         creadoEn: serverTimestamp(),
       });
     } catch (err) {
-      console.warn('[useAuth] No se pudo guardar en red (modo local activo):', err);
+      console.warn('[useAuth] Error al guardar el perfil en Firestore:', err);
     }
     setAppUser(profile);
     return profile;
   }
 
-  // Sign In
+  // Iniciar sesión con email y contraseña
   async function signIn(email: string, password: string) {
     setError(null);
     setLoading(true);
@@ -166,14 +111,13 @@ export function useAuth() {
     }
   }
 
-  // Sign Out
+  // Cerrar sesión
   async function signOut() {
     try {
-      clearTimeout(retryTimerRef.current);
       await firebaseSignOut(auth);
       reset();
     } catch (err) {
-      console.error('[useAuth] Sign out error:', err);
+      console.error('[useAuth] Error al cerrar sesión:', err);
     }
   }
 
