@@ -1,0 +1,65 @@
+/* BottomNav Styles */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--max-width);
+  height: var(--nav-height);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 var(--space-4);
+  z-index: 50;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+  text-decoration: none;
+  flex: 1;
+}
+
+.nav-item:hover {
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+}
+
+.nav-item.active {
+  color: var(--accent-500);
+}
+
+.nav-item.active .nav-icon {
+  stroke: var(--accent-500);
+  filter: drop-shadow(0 0 4px hsl(35, 95%, 55%, 0.5));
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+  transition: stroke var(--transition-fast), filter var(--transition-fast);
+}
+
+.nav-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* Espacio para el FAB en el centro */
+.nav-fab-space {
+  flex: 1;
+  max-width: 80px;
+}

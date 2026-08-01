@@ -1,0 +1,75 @@
+/* Header Component Styles */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--max-width);
+  height: var(--header-height);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  z-index: 50;
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 48px;
+}
+
+.header-right {
+  justify-content: flex-end;
+}
+
+.header-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  text-align: center;
+  flex: 1;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-icon {
+  font-size: 1.4rem;
+  filter: drop-shadow(0 0 6px hsl(35, 95%, 55%, 0.5));
+}
+
+/* Connection indicator dot */
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background var(--transition-base), box-shadow var(--transition-base);
+}
+
+.connection-dot.online {
+  background: var(--success);
+  box-shadow: 0 0 6px hsl(145, 60%, 45%, 0.6);
+}
+
+.connection-dot.offline {
+  background: var(--danger);
+  box-shadow: 0 0 6px hsl(4, 72%, 56%, 0.6);
+  animation: voicePulse 1.5s ease-in-out infinite;
+}
+
+.header-back {
+  color: var(--text-secondary);
+}

@@ -1,0 +1,252 @@
+/* ================================================================
+   FLASH FIADO — Animations & Micro-interactions
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   1. Entrada de elementos (fade-up)
+   ---------------------------------------------------------------- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.35s ease forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease forwards;
+}
+
+/* Stagger para listas */
+.animate-stagger > *:nth-child(1) { animation: fadeUp 0.3s 0.00s ease both; }
+.animate-stagger > *:nth-child(2) { animation: fadeUp 0.3s 0.05s ease both; }
+.animate-stagger > *:nth-child(3) { animation: fadeUp 0.3s 0.10s ease both; }
+.animate-stagger > *:nth-child(4) { animation: fadeUp 0.3s 0.15s ease both; }
+.animate-stagger > *:nth-child(5) { animation: fadeUp 0.3s 0.20s ease both; }
+.animate-stagger > *:nth-child(6) { animation: fadeUp 0.3s 0.25s ease both; }
+.animate-stagger > *:nth-child(n+7) { animation: fadeUp 0.3s 0.30s ease both; }
+
+/* ----------------------------------------------------------------
+   2. Toast notification
+   ---------------------------------------------------------------- */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+}
+
+.toast-exit {
+  animation: toast-out 0.25s ease forwards;
+}
+
+/* ----------------------------------------------------------------
+   3. Botón de micrófono — ondas de audio
+   ---------------------------------------------------------------- */
+@keyframes voiceRipple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes voicePulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.06); }
+}
+
+.voice-fab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-fab.listening .voice-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--danger);
+  animation: voiceRipple 1.4s ease-out infinite;
+}
+
+.voice-fab.listening .voice-ring:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+.voice-fab.listening .voice-ring:nth-child(3) {
+  animation-delay: 0.8s;
+}
+
+.voice-fab.listening .voice-btn {
+  animation: voicePulse 1s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------------------
+   4. Spinner de carga
+   ---------------------------------------------------------------- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-500);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.spinner-lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+/* ----------------------------------------------------------------
+   5. Modal / Overlay
+   ---------------------------------------------------------------- */
+@keyframes modalBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: hsl(222, 40%, 4%, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  animation: modalBackdropIn 0.2s ease forwards;
+}
+
+.modal-panel {
+  animation: modalSlideUp 0.3s ease forwards;
+}
+
+/* ----------------------------------------------------------------
+   6. Transición de rutas
+   ---------------------------------------------------------------- */
+@keyframes routeIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.route-enter {
+  animation: routeIn 0.25s ease forwards;
+}
+
+/* ----------------------------------------------------------------
+   7. Counter / número animado (badge de deuda)
+   ---------------------------------------------------------------- */
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.amount-update {
+  animation: countUp 0.3s ease forwards;
+}
+
+/* ----------------------------------------------------------------
+   8. Offline banner slide-down
+   ---------------------------------------------------------------- */
+@keyframes bannerSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.offline-banner {
+  animation: bannerSlideDown 0.3s ease forwards;
+}
+
+/* ----------------------------------------------------------------
+   9. Botón activo press effect
+   ---------------------------------------------------------------- */
+@keyframes btnPress {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+.btn:active {
+  animation: btnPress 0.15s ease;
+}
