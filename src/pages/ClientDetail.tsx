@@ -183,17 +183,7 @@ export function ClientDetail() {
       {showDeleteModal && client && (
         <>
           <div className="modal-backdrop" onClick={() => setShowDeleteModal(false)} />
-          <div className="modal-panel card" style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: '90%',
-            maxWidth: '380px',
-            zIndex: 250,
-            padding: 'var(--space-6)',
-            textAlign: 'center',
-          }}>
+          <div className="delete-modal-panel">
             {hasActiveDebt ? (
               /* CASO A: BLOQUEO POR DEUDA ACTIVA */
               <div className="delete-restricted-view">

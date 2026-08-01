@@ -87,3 +87,33 @@
 .movements-section {
   padding-bottom: var(--space-4);
 }
+
+/* Modal de confirmación / aviso de eliminación centrado en pantalla */
+.delete-modal-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 32px);
+  max-width: 380px;
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  text-align: center;
+  z-index: 250;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  animation: modalCenterIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  box-sizing: border-box;
+}
+
+@keyframes modalCenterIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
