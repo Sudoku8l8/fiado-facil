@@ -37,9 +37,10 @@ export function useVoice({
   const [transcript, setTranscript] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const recognitionRef = useRef<any>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRestartRef = useRef(autoRestart);
+  const isExplicitListeningRef = useRef(false);
+  const finalTranscriptRef = useRef('');
 
   // Mantener autoRestart actualizado
   autoRestartRef.current = autoRestart;
@@ -55,24 +56,42 @@ export function useVoice({
     }
   }, []);
 
-  const startListening = useCallback(async () => {
+  const stopListening = useCallback(() => {
+    isExplicitListeningRef.current = false;
+    clearSilenceTimer();
+    autoRestartRef.current = false;
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Ignorar
+      }
+    }
+    setState('idle');
+  }, [clearSilenceTimer]);
+
+  const reset = useCallback(() => {
+    isExplicitListeningRef.current = false;
+    clearSilenceTimer();
+    autoRestartRef.current = false;
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // Ignorar
+      }
+    }
+    finalTranscriptRef.current = '';
+    setState('idle');
+    setTranscript('');
+    setErrorMessage('');
+  }, [clearSilenceTimer]);
+
+  const startListening = useCallback(() => {
     if (!isSupported) {
       const msg = 'Tu navegador no soporta reconocimiento de voz. Usa Chrome en Android o PC.';
-      setErrorMessage(msg);
-      setState('error');
-      onError?.(msg);
-      return;
-    }
-
-    // Solicitar permiso de micrófono primero para evitar cierres instantáneos por falta de permiso
-    try {
-      if (!streamRef.current && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream;
-      }
-    } catch (err: any) {
-      console.warn('[useVoice] Permiso de micrófono denegado o no disponible:', err);
-      const msg = 'Permiso de micrófono denegado o no disponible.';
       setErrorMessage(msg);
       setState('error');
       onError?.(msg);
@@ -89,17 +108,17 @@ export function useVoice({
     }
 
     clearSilenceTimer();
+    isExplicitListeningRef.current = true;
+    finalTranscriptRef.current = '';
 
     const SpeechRecognitionClass =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognitionClass();
 
     recognition.lang = lang;
-    recognition.interimResults = true; // Permite ver la transcripción mientras hablas
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-    recognition.continuous = true;     // Evita que se cierre tras 1 segundo de silencio
-
-    let finalTranscript = '';
+    recognition.continuous = true;
 
     recognition.onstart = () => {
       setState('listening');
@@ -113,81 +132,89 @@ export function useVoice({
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          finalTranscriptRef.current += event.results[i][0].transcript;
         } else {
           currentInterim += event.results[i][0].transcript;
         }
       }
 
-      const text = finalTranscript || currentInterim;
+      const text = finalTranscriptRef.current || currentInterim;
       setTranscript(text);
 
-      // Enviar interinos para feedback en tiempo real
       if (currentInterim) {
         onInterim?.(currentInterim);
       }
 
-      // Si tenemos un resultado final, iniciar silence timer
-      if (finalTranscript.trim()) {
+      if (finalTranscriptRef.current.trim()) {
         silenceTimerRef.current = setTimeout(() => {
+          const resultText = finalTranscriptRef.current.trim();
           setState('processing');
-          onResult?.(finalTranscript.trim());
+          isExplicitListeningRef.current = false;
+          onResult?.(resultText);
 
-          if (!autoRestartRef.current) {
-            try {
-              recognition.stop();
-            } catch {
-              // Ignorar
-            }
-          } else {
-            // En modo guiado, resetear para el siguiente slot
-            finalTranscript = '';
-            setTranscript('');
+          try {
+            recognition.stop();
+          } catch {
+            // Ignorar
           }
         }, silenceTimeout);
       }
     };
 
     recognition.onerror = (event: any) => {
-      // 'aborted' ocurre al cerrar el micrófono o cambiar de modo, no es un error
       if (event.error === 'aborted') return;
 
-      console.error('[useVoice] Error en Web Speech API:', event.error, event);
+      // 'no-speech' es común en Android cuando hay 1s de silencio.
+      // Si el usuario aún desea escuchar, reintentamos en onend sin marcar error fatal.
+      if (event.error === 'no-speech') {
+        if (isExplicitListeningRef.current && !finalTranscriptRef.current) {
+          return;
+        }
+        if (finalTranscriptRef.current) {
+          const resultText = finalTranscriptRef.current.trim();
+          setState('processing');
+          isExplicitListeningRef.current = false;
+          onResult?.(resultText);
+          return;
+        }
+      }
+
+      console.warn('[useVoice] Error en Web Speech API:', event.error);
       clearSilenceTimer();
 
-      // 'no-speech' a veces salta en silencio, no marcarlo como error fatal si hay transcripción parcial
-      if (event.error === 'no-speech' && finalTranscript) {
-        onResult?.(finalTranscript.trim());
-        return;
-      }
       const msg = getSpeechErrorMessage(event.error);
       setErrorMessage(msg);
       setState('error');
+      isExplicitListeningRef.current = false;
       onError?.(msg);
     };
 
     recognition.onend = () => {
       clearSilenceTimer();
 
-      // Si autoRestart está activo y no hubo error, reiniciar
-      if (autoRestartRef.current && state !== 'error') {
+      // En Android Chrome, el reconocedor nativo se detiene agresivamente tras silencios breves.
+      // Si el usuario sigue en modo de escucha explícita y no se completó el resultado, reiniciar.
+      if (isExplicitListeningRef.current && !finalTranscriptRef.current) {
         try {
           recognition.start();
           return;
         } catch {
-          // No se pudo reiniciar, proceder con el cierre normal
+          // Si falla al reiniciar, continuar al cierre normal
         }
       }
 
-      // Liberar micrófono solo si no vamos a reiniciar
-      if (!autoRestartRef.current && streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
+      if (autoRestartRef.current) {
+        try {
+          recognition.start();
+          return;
+        } catch {
+          // Ignorar
+        }
       }
 
       setState((prev) => {
-        if (prev === 'listening' && finalTranscript) {
-          onResult?.(finalTranscript.trim());
+        if (prev === 'listening' && finalTranscriptRef.current) {
+          onResult?.(finalTranscriptRef.current.trim());
           return 'processing';
         }
         return prev === 'listening' ? 'idle' : prev;
@@ -202,13 +229,10 @@ export function useVoice({
       console.error('[useVoice] Error al iniciar reconocimiento:', e);
       setErrorMessage('No se pudo iniciar el micrófono.');
       setState('error');
+      isExplicitListeningRef.current = false;
     }
   }, [isSupported, onResult, onInterim, onError, clearSilenceTimer, silenceTimeout, lang]);
 
-  /**
-   * Reinicia la escucha sin pedir permisos de nuevo (reusar stream del micrófono).
-   * Útil para el modo guiado entre slots.
-   */
   const restartListening = useCallback(() => {
     clearSilenceTimer();
     setTranscript('');
@@ -221,43 +245,8 @@ export function useVoice({
       }
     }
 
-    // Re-iniciar con el stream existente
     startListening();
   }, [clearSilenceTimer, startListening]);
-
-  const stopListening = useCallback(() => {
-    clearSilenceTimer();
-    autoRestartRef.current = false; // Detener auto-restart al detener manualmente
-
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      // Ignorar
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setState('idle');
-  }, [clearSilenceTimer]);
-
-  const reset = useCallback(() => {
-    clearSilenceTimer();
-    autoRestartRef.current = false;
-
-    try {
-      recognitionRef.current?.abort();
-    } catch {
-      // Ignorar
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setState('idle');
-    setTranscript('');
-    setErrorMessage('');
-  }, [clearSilenceTimer]);
 
   return {
     state,
