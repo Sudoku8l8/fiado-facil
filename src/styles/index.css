@@ -94,6 +94,46 @@
   --nav-height:   64px;
   --header-height: 60px;
   --max-width:    480px;     /* mobile-first max */
+  --content-padding: var(--space-4);
+}
+
+/* ----------------------------------------------------------------
+   1b. Responsive Breakpoint Overrides
+   ---------------------------------------------------------------- */
+
+/* Tablets (≥ 600px) */
+@media (min-width: 600px) {
+  :root {
+    --max-width: 600px;
+    --content-padding: var(--space-6);
+    --text-xs:   0.75rem;
+    --text-sm:   0.875rem;
+    --text-base: 1rem;
+  }
+}
+
+/* Tablets landscape / Small laptops (≥ 768px) */
+@media (min-width: 768px) {
+  :root {
+    --max-width: 680px;
+    --nav-height: 68px;
+    --header-height: 64px;
+  }
+}
+
+/* Desktop (≥ 1024px) */
+@media (min-width: 1024px) {
+  :root {
+    --max-width: 720px;
+    --content-padding: var(--space-8);
+  }
+}
+
+/* Large Desktop (≥ 1440px) */
+@media (min-width: 1440px) {
+  :root {
+    --max-width: 800px;
+  }
 }
 
 /* ----------------------------------------------------------------
@@ -121,6 +161,8 @@ body {
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevenir zoom accidental en iOS cuando hacen focus en inputs */
+  -webkit-text-size-adjust: 100%;
 }
 
 #root {
@@ -166,8 +208,8 @@ a {
 
 .page-content {
   flex: 1;
-  padding: var(--space-4);
-  padding-top: calc(var(--header-height) + var(--space-4));
+  padding: var(--content-padding);
+  padding-top: calc(var(--header-height) + var(--content-padding));
   padding-bottom: calc(var(--nav-height) + var(--space-6));
   overflow-y: auto;
 }
@@ -238,6 +280,8 @@ a {
   white-space: nowrap;
   position: relative;
   overflow: hidden;
+  /* Touch targets: al menos 44x44 en móvil */
+  min-height: 44px;
 }
 
 .btn::after {
@@ -365,6 +409,8 @@ a {
   font-size: var(--text-base);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   outline: none;
+  /* Prevenir zoom automático en iOS al enfocar inputs < 16px */
+  font-size: max(var(--text-base), 16px);
 }
 
 .input::placeholder { color: var(--text-muted); }
@@ -491,3 +537,72 @@ a {
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .font-display { font-family: var(--font-display); }
+
+/* ----------------------------------------------------------------
+   14. Spinner
+   ---------------------------------------------------------------- */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------------
+   15. Modal backdrop
+   ---------------------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: hsl(0, 0%, 0%, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 200;
+  animation: fadeIn 0.2s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ----------------------------------------------------------------
+   16. Dialog error
+   ---------------------------------------------------------------- */
+.dialog-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid hsl(4, 72%, 56%, 0.25);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+
+/* ----------------------------------------------------------------
+   17. PWA standalone safe areas (notch / home indicator)
+   ---------------------------------------------------------------- */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .app-header {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .page-content {
+    padding-bottom: calc(var(--nav-height) + var(--space-6) + env(safe-area-inset-bottom));
+  }
+}

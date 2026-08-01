@@ -18,6 +18,14 @@
   z-index: 50;
 }
 
+/* Soporte para safe areas (notch / home indicator en iOS) */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(var(--nav-height) + env(safe-area-inset-bottom));
+  }
+}
+
 .nav-item {
   display: flex;
   flex-direction: column;
@@ -29,6 +37,9 @@
   transition: color var(--transition-fast), background var(--transition-fast);
   text-decoration: none;
   flex: 1;
+  /* Touch target mínimo de 44x44 */
+  min-height: 44px;
+  justify-content: center;
 }
 
 .nav-item:hover {
