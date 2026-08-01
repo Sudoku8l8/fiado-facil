@@ -1,6 +1,6 @@
 // ============================================================
 // Flash Fiado — VoiceFAB (Floating Action Button de Micrófono)
-// Dictado directo de 1 frase + opción de ingreso manual
+// Botón manual superior visible + dictado de voz de frente
 // ============================================================
 import { useState } from 'react';
 import { useVoiceSlots } from '../../hooks/useVoiceSlots';
@@ -16,11 +16,11 @@ export function VoiceFAB() {
 
   const voice = useVoiceSlots();
 
-  // Al presionar el micrófono, EMPIEZA A GRABAR LA FRASE DIRECTA DE UNA
+  // Al presionar el micrófono, EMPIEZA A GRABAR DIRECTAMENTE
   const handleFABClick = () => {
     if (showSheet || showConfirmDialog) return;
     setShowSheet(true);
-    voice.startFree(); // Dictado directo de 1 sola frase ("Pablo 2 gaseosas 10 soles")
+    voice.startFree(); // Dictado directo de 1 frase
   };
 
   // Cerrar el sheet de voz
@@ -29,7 +29,7 @@ export function VoiceFAB() {
     setShowSheet(false);
   };
 
-  // Abrir formulario manual directo (1 solo tap)
+  // Abrir formulario manual directo
   const handleManualOpen = () => {
     voice.cancel();
     setShowSheet(false);
@@ -37,14 +37,13 @@ export function VoiceFAB() {
     setShowConfirmDialog(true);
   };
 
-  // Cerrar el diálogo de confirmación
+  // Cerrar diálogo de confirmación
   const handleDialogClose = () => {
     setShowConfirmDialog(false);
     setManualEntry(null);
     voice.cancel();
   };
 
-  // Cuando se termina el dictado directo
   const voiceResult = voice.result;
   const isConfirming = voice.mode === 'confirming' && voiceResult;
 
@@ -60,8 +59,24 @@ export function VoiceFAB() {
     <>
       {/* FAB centrado en la bottom nav */}
       <div className="fab-container">
+        {/* Botón flotante superior para registro manual (altamente visible y cómodo) */}
+        {!isActive && (
+          <button
+            type="button"
+            className="fab-manual-pill"
+            onClick={handleManualOpen}
+            title="Anotar fiado manualmente sin usar voz"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            <span>Anotar manual</span>
+          </button>
+        )}
+
+        {/* Botón principal del micrófono */}
         <div className={`voice-fab ${isListening ? 'listening' : ''}`}>
-          {/* Ondas de audio cuando está escuchando */}
           {isListening && (
             <>
               <div className="voice-ring" />
@@ -78,42 +93,22 @@ export function VoiceFAB() {
             aria-label={isActive ? 'Escuchando dictado' : 'Dictar fiado de frente'}
             title={!voice.isSupported ? 'Usa Chrome en Android para reconocimiento de voz' : 'Dictar fiado directo'}
           >
-            {isActive ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8"  y1="23" x2="16" y2="23"/>
-              </svg>
-            ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8"  y1="23" x2="16" y2="23"/>
-              </svg>
-            )}
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8"  y1="23" x2="16" y2="23"/>
+            </svg>
           </button>
         </div>
 
-        {/* Acceso rápido a registro manual */}
-        <div className="fab-actions">
-          {isListening ? (
-            <span className="fab-label-listening">Escuchando…</span>
-          ) : (
-            <button
-              type="button"
-              className="fab-manual-btn"
-              onClick={handleManualOpen}
-              title="Anotar manualmente sin voz"
-            >
-              ✏️ Manual
-            </button>
-          )}
-        </div>
+        {/* Estado mientras está escuchando */}
+        {isListening && (
+          <span className="fab-label-listening">Escuchando…</span>
+        )}
       </div>
 
-      {/* Sheet de grabación de frase directa */}
+      {/* Sheet de grabación directa */}
       {showSheet && !isConfirming && (
         <VoiceGuidedSheet
           voice={voice}
@@ -122,7 +117,7 @@ export function VoiceFAB() {
         />
       )}
 
-      {/* Pantalla de confirmación con los datos extraídos */}
+      {/* Pantalla de confirmación tras dictado */}
       {showSheet && isConfirming && voiceResult && (
         <>
           <div className="guided-backdrop" onClick={handleSheetClose} />
@@ -147,7 +142,7 @@ export function VoiceFAB() {
         </>
       )}
 
-      {/* Diálogo final de edición/confirmación */}
+      {/* Diálogo final de confirmación */}
       {showConfirmDialog && (
         <VoiceConfirmDialog
           parsed={manualEntry || voiceResult || { raw: '' }}
