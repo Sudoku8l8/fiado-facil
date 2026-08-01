@@ -25,11 +25,18 @@ export interface Client {
   storeName: string;
 }
 
+export interface MovementItem {
+  producto: string;
+  unidades: number;
+  precioUnitario?: number;
+}
+
 export interface Movement {
   id: string;
   clientId: string;
   tipo: MovementType;
-  producto?: string;
+  items?: MovementItem[];
+  producto?: string; // resumen textual (ej: "1 Gaseosa, 2 Leches")
   unidades?: number;
   monto: number;
   fecha: Date;
@@ -40,11 +47,12 @@ export interface Movement {
 // Para el parser de voz
 export interface ParsedVoiceEntry {
   cliente?: string;
+  items?: MovementItem[];
   producto?: string;
   unidades?: number;
   monto?: number;
   raw: string; // texto original transcrito
 }
 
-// Estado de la reconocimiento de voz
+// Estado del reconocimiento de voz
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'error';

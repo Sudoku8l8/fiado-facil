@@ -23,7 +23,7 @@ import {
 import { db } from '../lib/firebase';
 import { useAuthStore } from '../store/authStore';
 import { useClientStore } from '../store/clientStore';
-import type { Client, Movement, MovementType } from '../types';
+import type { Client, Movement, MovementItem, MovementType } from '../types';
 
 export function useFirestore() {
   const { appUser } = useAuthStore();
@@ -151,6 +151,7 @@ export function useFirestore() {
           id: d.id,
           clientId,
           tipo: d.data().tipo as MovementType,
+          items: d.data().items as MovementItem[] | undefined,
           producto: d.data().producto,
           unidades: d.data().unidades,
           monto: d.data().monto,
@@ -167,10 +168,11 @@ export function useFirestore() {
     );
   }
 
-  /** Registrar una deuda con resiliencia a timeouts de red */
+  /** Registrar una deuda con resiliencia a timeouts de red y soporte multi-producto */
   const addDebt = useCallback(
     async (params: {
       clienteNombre: string;
+      items?: MovementItem[];
       producto?: string;
       unidades?: number;
       monto: number;
@@ -185,10 +187,21 @@ export function useFirestore() {
       const clientId = await getOrCreateClient(params.clienteNombre);
 
       const movRef = doc(collection(db, 'clientes', clientId, 'movimientos'));
+      
+      const itemsList = params.items ?? [];
+      const productSummary = params.producto || (itemsList.length > 0 
+        ? itemsList.map(i => `${i.unidades > 1 ? i.unidades + ' ' : ''}${i.producto}`).join(', ') 
+        : '');
+      
+      const totalUnits = params.unidades || (itemsList.length > 0 
+        ? itemsList.reduce((sum, i) => sum + i.unidades, 0) 
+        : 1);
+
       const movData = {
         tipo: 'deuda',
-        producto: params.producto ?? '',
-        unidades: params.unidades ?? 1,
+        items: itemsList,
+        producto: productSummary,
+        unidades: totalUnits,
         monto: params.monto,
         fecha: serverTimestamp(),
         registradoPor: activeUser.nombre,

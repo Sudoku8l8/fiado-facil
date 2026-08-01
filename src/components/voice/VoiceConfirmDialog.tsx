@@ -1,11 +1,10 @@
 // ============================================================
 // Flash Fiado — VoiceConfirmDialog
-// Sprint 4: Confirmación y edición de datos extraídos por voz
-// Badges de campos capturados por voz vs editados manualmente
+// Sprint 4: Confirmación y edición de datos (Soporte Multi-Producto)
 // ============================================================
 import { useState, useRef } from 'react';
 import { useFirestore } from '../../hooks/useFirestore';
-import type { ParsedVoiceEntry } from '../../types';
+import type { ParsedVoiceEntry, MovementItem } from '../../types';
 import { getParseErrors } from '../../lib/voiceParser';
 import './VoiceConfirmDialog.css';
 
@@ -18,21 +17,28 @@ interface Props {
 export function VoiceConfirmDialog({ parsed, transcript, onClose }: Props) {
   const { addDebt } = useFirestore();
 
-  const [cliente, setCliente]   = useState(parsed.cliente ?? '');
-  const [producto, setProducto] = useState(parsed.producto ?? '');
-  const [unidades, setUnidades] = useState(String(parsed.unidades ?? 1));
-  const [monto, setMonto]       = useState(String(parsed.monto ?? ''));
+  const [cliente, setCliente] = useState(parsed.cliente ?? '');
+  const [monto, setMonto]     = useState(String(parsed.monto ?? ''));
+
+  // Inicializar lista de productos
+  const initialItems: MovementItem[] =
+    parsed.items && parsed.items.length > 0
+      ? parsed.items
+      : parsed.producto
+      ? [{ producto: parsed.producto, unidades: parsed.unidades || 1 }]
+      : [{ producto: '', unidades: 1 }];
+
+  const [items, setItems] = useState<MovementItem[]>(initialItems);
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError]     = useState('');
 
-  // Track which fields were set by voice (vs edited manually)
+  // Rastrear campos capturados por voz vs editados manualmente
   const voiceFields = useRef<Set<string>>(new Set(
     [
       parsed.cliente ? 'cliente' : '',
-      parsed.producto ? 'producto' : '',
-      parsed.unidades ? 'unidades' : '',
+      parsed.items && parsed.items.length > 0 ? 'items' : parsed.producto ? 'producto' : '',
       parsed.monto ? 'monto' : '',
     ].filter(Boolean)
   ));
@@ -46,12 +52,35 @@ export function VoiceConfirmDialog({ parsed, transcript, onClose }: Props) {
   const isVoiceFilled = (field: string) =>
     voiceFields.current.has(field) && !editedFields.has(field);
 
-  const missingFields = getParseErrors({ ...parsed, cliente, monto: parseFloat(monto) });
+  // Manejar cambios en la lista dinámica de ítems
+  const handleItemChange = (index: number, field: keyof MovementItem, value: string | number) => {
+    setItems(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+    markEdited('items');
+  };
+
+  const handleAddItem = () => {
+    setItems(prev => [...prev, { producto: '', unidades: 1 }]);
+    markEdited('items');
+  };
+
+  const handleRemoveItem = (index: number) => {
+    if (items.length <= 1) return;
+    setItems(prev => prev.filter((_, i) => i !== index));
+    markEdited('items');
+  };
+
+  const missingFields = getParseErrors({ cliente, monto: parseFloat(monto), raw: transcript });
 
   const handleConfirm = async () => {
     if (!cliente.trim()) { setError('El nombre del cliente es requerido.'); return; }
     const montoNum = parseFloat(monto);
     if (isNaN(montoNum) || montoNum <= 0) { setError('El monto debe ser un número mayor a 0.'); return; }
+
+    const validItems = items.filter(i => i.producto.trim().length > 0);
 
     setError('');
     setLoading(true);
@@ -59,8 +88,7 @@ export function VoiceConfirmDialog({ parsed, transcript, onClose }: Props) {
     try {
       await addDebt({
         clienteNombre: cliente.trim(),
-        producto: producto.trim() || undefined,
-        unidades: parseInt(unidades) || 1,
+        items: validItems,
         monto: montoNum,
       });
       setSuccess(true);
@@ -100,8 +128,9 @@ export function VoiceConfirmDialog({ parsed, transcript, onClose }: Props) {
               <p className="transcript-text">"{transcript}"</p>
             </div>
 
-            {/* Campos extraídos — editables */}
+            {/* Campos extraídos / editables */}
             <div className="dialog-fields">
+              {/* Cliente */}
               <div className={`input-group ${!cliente ? 'field-missing' : ''}`}>
                 <label className="input-label" htmlFor="dlg-cliente">
                   Cliente {!cliente && <span className="field-required">*</span>}
@@ -117,40 +146,66 @@ export function VoiceConfirmDialog({ parsed, transcript, onClose }: Props) {
                 />
               </div>
 
-              <div className="dialog-row">
-                <div className="input-group" style={{ flex: 1 }}>
-                  <label className="input-label" htmlFor="dlg-unidades">
-                    Unidades
-                    {isVoiceFilled('unidades') && <span className="voice-badge" title="Capturado por voz">🎙️</span>}
+              {/* Sección Dinámica de Productos */}
+              <div className="items-section">
+                <div className="items-section-header">
+                  <label className="input-label">
+                    Productos ({items.length})
+                    {isVoiceFilled('items') && <span className="voice-badge" title="Capturado por voz">🎙️</span>}
                   </label>
-                  <input
-                    id="dlg-unidades"
-                    className="input"
-                    type="number"
-                    min="1"
-                    value={unidades}
-                    onChange={(e) => { setUnidades(e.target.value); markEdited('unidades'); }}
-                  />
                 </div>
 
-                <div className="input-group" style={{ flex: 2 }}>
-                  <label className="input-label" htmlFor="dlg-producto">
-                    Producto
-                    {isVoiceFilled('producto') && <span className="voice-badge" title="Capturado por voz">🎙️</span>}
-                  </label>
-                  <input
-                    id="dlg-producto"
-                    className="input"
-                    value={producto}
-                    onChange={(e) => { setProducto(e.target.value); markEdited('producto'); }}
-                    placeholder="Opcional"
-                  />
+                <div className="items-list">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="item-row">
+                      <div className="input-group item-qty">
+                        <label className="input-label-sub">Cant.</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min="1"
+                          value={item.unidades}
+                          onChange={(e) => handleItemChange(idx, 'unidades', Math.max(1, parseInt(e.target.value) || 1))}
+                        />
+                      </div>
+
+                      <div className="input-group item-name">
+                        <label className="input-label-sub">Producto</label>
+                        <input
+                          className="input"
+                          value={item.producto}
+                          onChange={(e) => handleItemChange(idx, 'producto', e.target.value)}
+                          placeholder="Ej. Gaseosa"
+                        />
+                      </div>
+
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-icon btn-ghost btn-remove-item"
+                          onClick={() => handleRemoveItem(idx)}
+                          title="Eliminar producto"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
+
+                <button
+                  type="button"
+                  className="btn-add-item"
+                  onClick={handleAddItem}
+                >
+                  + Agregar otro producto
+                </button>
               </div>
 
+              {/* Monto Total */}
               <div className={`input-group ${!monto ? 'field-missing' : ''}`}>
                 <label className="input-label" htmlFor="dlg-monto">
-                  Monto (S/) {!monto && <span className="field-required">*</span>}
+                  Monto Total (S/) {!monto && <span className="field-required">*</span>}
                   {isVoiceFilled('monto') && <span className="voice-badge" title="Capturado por voz">🎙️</span>}
                 </label>
                 <input

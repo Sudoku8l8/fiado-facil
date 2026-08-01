@@ -1,9 +1,9 @@
 // ============================================================
 // Flash Fiado — Voice Parser Utilities (es-PE)
-// Normalización, conversión numérica y parser NLP directo
+// Normalización, conversión numérica y parser NLP multi-producto
 // ============================================================
 
-import type { ParsedVoiceEntry } from '../types';
+import type { ParsedVoiceEntry, MovementItem } from '../types';
 import { hasKeywords, parseWithKeywords } from './voiceCommandEngine';
 
 // ----------------------------------------------------------------
@@ -34,6 +34,17 @@ const WORDS_TO_NUMBERS: Record<string, number> = {
   setecientos: 700, ochocientos: 800, novecientos: 900, mil: 1000,
   medio: 0.5, media: 0.5,
 };
+
+const NUMBER_WORDS_SET = new Set([
+  'cero', 'un', 'uno', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez',
+  'once', 'doce', 'trece', 'catorce', 'quince', 'dieciseis', 'diecisiete', 'dieciocho', 'diecinueve',
+  'veinte', 'veintiuno', 'veintidos', 'veintitres', 'veinticuatro', 'veinticinco', 'veintiseis', 'veintisiete',
+  'veintiocho', 'veintinueve', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa',
+  'cien', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos',
+  'ochocientos', 'novecientos', 'mil', 'monto', 'precio', 'cuesta', 'vale', 'son', 'por', 'soles', 'sol',
+]);
+
+const NUMBER_WORDS_PATTERN = '(?:[\\d,.]+|\\b(?:un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciseis|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintidos|veintitres|veinticuatro|veinticinco|veintiseis|veintisiete|veintiocho|veintinueve|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|ciento|mil)\\b)';
 
 /**
  * Convierte texto numérico (dígitos o palabras) a un número.
@@ -98,48 +109,74 @@ export function extractNumber(text: string): number | null {
   return wordsToNumber(cleaned);
 }
 
+/**
+ * Extrae el nombre del cliente evitando capturar palabras numéricas (ej. "Juan 3" -> "Juan")
+ */
+export function extractClientName(text: string): { clientName: string | null; matchedRaw: string | null } {
+  const match = text.match(/(?:(?:a|para|cliente|al)\s+)?([A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,})?)/i);
+
+  if (!match) return { clientName: null, matchedRaw: null };
+
+  const rawWords = match[1].trim().split(/\s+/);
+  const validWords: string[] = [];
+
+  for (const word of rawWords) {
+    const norm = normalize(word);
+    if (NUMBER_WORDS_SET.has(norm) || !isNaN(parseFloat(norm))) {
+      break;
+    }
+    validWords.push(word);
+  }
+
+  if (validWords.length === 0) return { clientName: null, matchedRaw: null };
+
+  const clientName = capitalizeWords(validWords.join(' '));
+  const prefixMatch =
+    text.match(new RegExp(`(?:a|para|cliente|al)\\s+${validWords.join('\\s+')}`, 'i')) ||
+    text.match(new RegExp(validWords.join('\\s+'), 'i'));
+
+  return {
+    clientName,
+    matchedRaw: prefixMatch ? prefixMatch[0] : validWords.join(' '),
+  };
+}
+
 // ----------------------------------------------------------------
-// Parser de dictado libre directo (NLP de 1 sola frase)
+// Parser de dictado libre multi-producto (NLP es-PE)
 // ----------------------------------------------------------------
 
 /**
- * Parsea una frase dictada completa en un solo paso.
- * Ejemplo 1: "Pablo 2 gaseosas 10 soles"
- * Ejemplo 2: "A Juan un aceite 8.50"
- * Ejemplo 3: "cliente Carlos producto arroz unidades 3 precio 15"
+ * Parsea una frase dictada con 1 o varios productos en un solo paso.
+ * Ejemplo 1: "Registrar a Juan 3 aceites 2 kilos de arroz por 28 soles"
+ * Ejemplo 2: "Pablo 1 gaseosa 2 leches 16 soles"
  */
 export function parseVoiceEntry(rawText: string): ParsedVoiceEntry {
-  const result: ParsedVoiceEntry = { raw: rawText };
+  const result: ParsedVoiceEntry = { raw: rawText, items: [] };
   if (!rawText || !rawText.trim()) return result;
 
-  // Si usa palabras clave explícitas (cliente, producto, cantidad, precio), usar parser delimitador
   if (hasKeywords(rawText)) {
     const kwParsed = parseWithKeywords(rawText);
     if (kwParsed.cliente || kwParsed.monto) {
+      if (kwParsed.producto) {
+        kwParsed.items = [{ producto: kwParsed.producto, unidades: kwParsed.unidades || 1 }];
+      }
       return kwParsed;
     }
   }
 
   let text = cleanTranscript(rawText);
 
-  // 1. Extraer CLIENTE
-  const clientMatch = text.match(/(?:a|para|cliente|al)\s+([A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,})?)/i);
-  if (clientMatch) {
-    result.cliente = capitalizeWords(clientMatch[1].trim());
-    text = text.replace(clientMatch[0], ' ').trim();
-  } else {
-    // Si empieza directamente con el nombre (ej: "Pablo 2 gaseosas...")
-    const leadingNameMatch = text.match(/^([A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,}(?:\s+[A-Za-záéíóúÁÉÍÓÚñÑüÜ]{2,})?)\s+(?=\d|\b(?:un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|monto|precio|por|cuesta|soles?)\b)/i);
-    if (leadingNameMatch) {
-      result.cliente = capitalizeWords(leadingNameMatch[1].trim());
-      text = text.replace(leadingNameMatch[0], ' ').trim();
-    }
+  // 1. Extraer CLIENTE (evitando palabras numéricas)
+  const clientExtracted = extractClientName(text);
+  if (clientExtracted.clientName && clientExtracted.matchedRaw) {
+    result.cliente = clientExtracted.clientName;
+    text = text.replace(clientExtracted.matchedRaw, ' ').trim();
   }
 
-  // 2. Extraer MONTO (monto X, precio X, X soles, por X)
+  // 2. Extraer MONTO TOTAL
   const amountMatch =
-    text.match(/(?:monto|precio|cuesta|vale|son|por|a)\s+([\d,.]+|\b(?:un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cincuenta|cien)\b)(?:\s+(?:soles?|sol))?/i) ||
-    text.match(/\b([\d,.]+|\b(?:un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cincuenta|cien)\b)\s*(?:soles?|sol)\b/i);
+    text.match(new RegExp(`(?:monto|precio|cuesta|vale|son|por|a)\\s+(${NUMBER_WORDS_PATTERN})(?:\\s+(?:soles?|sol))?`, 'i')) ||
+    text.match(new RegExp(`\\b(${NUMBER_WORDS_PATTERN})\\s*(?:soles?|sol)\\b`, 'i'));
 
   if (amountMatch) {
     const rawAmount = amountMatch[1].replace(/soles?|sol/gi, '').trim();
@@ -150,29 +187,56 @@ export function parseVoiceEntry(rawText: string): ParsedVoiceEntry {
     }
   }
 
-  // 3. Extraer UNIDADES y PRODUCTO ([N] [Producto])
-  const itemMatch = text.match(/(\d+|\b(?:un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b)?\s*([a-záéíóúñüÁÉÍÓÚÑÜ\s]{2,})/i);
-  if (itemMatch) {
-    if (itemMatch[1]) {
-      const units = wordsToNumber(itemMatch[1].trim());
-      if (units !== null && units > 0) {
-        result.unidades = Math.round(units);
-      }
-    }
-    if (itemMatch[2]) {
-      const rawProd = itemMatch[2].replace(/\b(soles?|sol|monto|precio|por|a)\b/gi, '').trim();
-      if (rawProd.length >= 2) {
-        result.producto = capitalizeWords(rawProd);
-      }
-    }
-  }
+  // 3. Extraer MÚLTIPLES ÍTEMS del texto restante
+  const cleanedItemsText = text.replace(/\b(soles?|sol|monto|precio|por)\b/gi, ' ').trim();
+  const items: MovementItem[] = parseItemsList(cleanedItemsText);
 
-  // Si no especificó unidades pero hay producto, por defecto 1
-  if (result.producto && !result.unidades) {
-    result.unidades = 1;
+  if (items.length > 0) {
+    result.items = items;
+    result.producto = items.length === 1 ? items[0].producto : items.map(i => `${i.unidades > 1 ? i.unidades + ' ' : ''}${i.producto}`).join(', ');
+    result.unidades = items.reduce((sum, i) => sum + i.unidades, 0);
   }
 
   return result;
+}
+
+/**
+ * Parsea una lista de productos a partir de texto (ej. "3 aceites 2 kilos de arroz" o "1 gaseosa 2 leches")
+ */
+export function parseItemsList(text: string): MovementItem[] {
+  if (!text || !text.trim()) return [];
+
+  const clean = text
+    .replace(/\s*(?:,|;|\by\b|\bcon\b|\bmás\b)\s*/gi, ' ')
+    .trim();
+
+  // Capturar [Unidades (opcional)] [Nombre del producto (sin tragar números del siguiente producto)]
+  const itemRegex = new RegExp(
+    `(?:(${NUMBER_WORDS_PATTERN})\\s+)?` +
+    `([a-záéíóúñüÁÉÍÓÚÑÜ]+(?:\\s+(?!${NUMBER_WORDS_PATTERN}\\b)[a-záéíóúñüÁÉÍÓÚÑÜ]+)*)`,
+    'gi'
+  );
+
+  const items: MovementItem[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = itemRegex.exec(clean)) !== null) {
+    const rawUnits = match[1] ? match[1].trim() : '1';
+    const units = wordsToNumber(rawUnits) || 1;
+    const rawProd = match[2].trim();
+
+    if (
+      rawProd.length >= 2 &&
+      !NUMBER_WORDS_SET.has(normalize(rawProd))
+    ) {
+      items.push({
+        unidades: Math.round(units),
+        producto: capitalizeWords(rawProd),
+      });
+    }
+  }
+
+  return items;
 }
 
 export function getParseErrors(entry: ParsedVoiceEntry): string[] {
