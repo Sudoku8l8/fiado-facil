@@ -6,7 +6,7 @@ import { getAuth } from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentSingleTabManager,
+  persistentMultipleTabManager,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -24,10 +24,10 @@ const app = initializeApp(firebaseConfig);
 // Auth
 export const auth = getAuth(app);
 
-// Firestore con caché persistente (modo offline de la API v10+)
+// Firestore con caché persistente y soporte multi-tab
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentSingleTabManager({}),
+    tabManager: persistentMultipleTabManager(),
   }),
   experimentalAutoDetectLongPolling: true,
 });

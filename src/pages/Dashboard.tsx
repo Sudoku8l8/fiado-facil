@@ -25,7 +25,7 @@ export function Dashboard() {
   useEffect(() => {
     const unsub = subscribeClients();
     return () => unsub();
-  }, [appUser?.storeName]);
+  }, [appUser?.uid]);
 
   const filtered = getFilteredClients();
 

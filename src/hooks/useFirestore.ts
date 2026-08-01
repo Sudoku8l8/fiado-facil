@@ -15,7 +15,6 @@ import {
   getDocsFromCache,
   onSnapshot,
   query,
-  orderBy,
   serverTimestamp,
   increment,
   where,
@@ -29,20 +28,24 @@ export function useFirestore() {
   const { appUser } = useAuthStore();
   const { setClients, setMovements, setLoading } = useClientStore();
 
+  // Identificador único e inmutable del usuario — nunca tiene valor por defecto ambiguo
+  const userId = appUser?.uid ?? null;
   const storeName = appUser?.storeName ?? 'Mi Bodega';
 
   // ----------------------------------------------------------------
   // Clientes
   // ----------------------------------------------------------------
 
-  /** Suscribirse en tiempo real a la lista de clientes de la tienda */
+  /** Suscribirse en tiempo real a la lista de clientes del usuario */
   function subscribeClients(onError?: (err: Error) => void) {
-    if (!storeName) return () => {};
+    // Esperar a que el userId esté disponible (perfil ya cargado desde Firestore)
+    if (!userId) return () => {};
 
+    // Solo filtramos por userId — sin orderBy para evitar requerir índice compuesto.
+    // El ordenamiento se hace localmente (la lista de clientes de una bodega es pequeña).
     const q = query(
       collection(db, 'clientes'),
-      where('storeName', '==', storeName),
-      orderBy('deudaTotal', 'desc')
+      where('userId', '==', userId)
     );
 
     return onSnapshot(
@@ -63,7 +66,6 @@ export function useFirestore() {
           }
 
           const existing = currentClientsMap.get(d.id);
-          // Si deudaTotal es undefined por un increment() local pendiente en Firestore, mantener el saldo local optimista
           const debtVal =
             typeof data.deudaTotal === 'number' && !isNaN(data.deudaTotal)
               ? data.deudaTotal
@@ -77,6 +79,9 @@ export function useFirestore() {
             storeName: data.storeName ?? storeName,
           };
         });
+
+        // Ordenar localmente por deuda descendente (evita índice compuesto en Firestore)
+        clients.sort((a, b) => b.deudaTotal - a.deudaTotal);
         setClients(clients);
         setLoading(false);
       },
@@ -90,6 +95,8 @@ export function useFirestore() {
 
   /** Obtener o crear un cliente por nombre con soporte de caché e in-memory */
   async function getOrCreateClient(nombre: string): Promise<string> {
+    if (!userId) throw new Error('Usuario no autenticado');
+
     const normName = nombre.trim();
     const lowerName = normName.toLowerCase();
 
@@ -102,9 +109,10 @@ export function useFirestore() {
       return inMemory.id;
     }
 
+    // Filtrar por userId (UID único), no por storeName
     const q = query(
       collection(db, 'clientes'),
-      where('storeName', '==', storeName),
+      where('userId', '==', userId),
       where('nombreLower', '==', lowerName)
     );
 
@@ -138,6 +146,8 @@ export function useFirestore() {
       nombreLower: lowerName,
       deudaTotal: 0,
       fechaUltimoMovimiento: serverTimestamp(),
+      // Guardar AMBOS: userId para identificación segura, storeName para mostrar en UI
+      userId,
       storeName,
       creadoEn: serverTimestamp(),
     };
@@ -162,8 +172,7 @@ export function useFirestore() {
   /** Suscribirse a los movimientos de un cliente */
   function subscribeMovements(clientId: string, onError?: (err: Error) => void) {
     const q = query(
-      collection(db, 'clientes', clientId, 'movimientos'),
-      orderBy('fecha', 'desc')
+      collection(db, 'clientes', clientId, 'movimientos')
     );
 
     return onSnapshot(
@@ -197,6 +206,9 @@ export function useFirestore() {
             registradoPorUid: data.registradoPorUid,
           };
         });
+
+        // Ordenar localmente por fecha descendente
+        movements.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
         setMovements(movements);
       },
       (err) => {

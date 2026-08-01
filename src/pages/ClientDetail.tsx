@@ -8,6 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { OfflineBanner } from '../components/layout/OfflineBanner';
 import { useFirestore } from '../hooks/useFirestore';
+import { useAuth } from '../hooks/useAuth';
 import { useClientStore } from '../store/clientStore';
 import { formatCurrency, formatDateTime, getDebtLevel } from '../utils/format';
 import type { Movement } from '../types';
@@ -16,6 +17,7 @@ import './ClientDetail.css';
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>();
   const navigate = useNavigate();
+  const { appUser } = useAuth();
   const { subscribeClients, subscribeMovements, addPayment, deleteClient } = useFirestore();
   const { clients, movements, setMovements } = useClientStore();
 
@@ -32,10 +34,11 @@ export function ClientDetail() {
   const [deleteError, setDeleteError]         = useState('');
 
   // Suscribirse a la lista de clientes para mantener sincronizada la deuda total
+  // Depende de appUser?.uid para esperar a que el perfil esté cargado
   useEffect(() => {
     const unsub = subscribeClients();
     return () => unsub();
-  }, []);
+  }, [appUser?.uid]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -75,8 +78,9 @@ export function ClientDetail() {
       await deleteClient(clientId);
       setShowDeleteModal(false);
       navigate('/clientes', { replace: true });
-    } catch (err: any) {
-      setDeleteError(err.message || 'Error al eliminar el cliente.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al eliminar el cliente.';
+      setDeleteError(msg);
     } finally {
       setDeleteLoading(false);
     }

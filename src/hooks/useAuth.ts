@@ -2,7 +2,7 @@
 // Flash Fiado — useAuth Hook
 // Autenticación con email/password y sincronización en tiempo real de perfil
 // ============================================================
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -25,12 +25,17 @@ export function useAuth() {
     setFirebaseUser, setAppUser, setLoading, setError, reset,
   } = useAuthStore();
 
+  // Flag para saber si ya se completó al menos una lectura de Firestore del perfil
+  // Esto evita mostrar la pantalla de Setup mientras el perfil aún está cargando
+  const profileLoaded = useRef(false);
+
   // Escuchar estado de autenticación y sincronizar el perfil de usuario en tiempo real
   useEffect(() => {
     let unsubProfile: (() => void) | undefined;
 
     const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
+        profileLoaded.current = false; // reset al cambiar de usuario
         setFirebaseUser({ uid: fbUser.uid, email: fbUser.email });
 
         const userRef = doc(db, 'usuarios', fbUser.uid);
@@ -40,10 +45,11 @@ export function useAuth() {
           const cacheSnap = await getDocFromCache(userRef);
           if (cacheSnap.exists()) {
             setAppUser(cacheSnap.data() as AppUser);
+            profileLoaded.current = true;
             setLoading(false);
           }
         } catch {
-          // Sin caché local aún (dispositivo nuevo)
+          // Sin caché local aún (dispositivo nuevo) — esperar a Firestore
         }
 
         // 2. Suscribirse en tiempo real al documento de perfil del usuario en Firestore
@@ -53,13 +59,18 @@ export function useAuth() {
             if (snap.exists()) {
               setAppUser(snap.data() as AppUser);
             } else {
+              // Solo marcar sin perfil si ya se confirmó que no existe en Firestore
               setAppUser(null);
             }
+            profileLoaded.current = true;
             setLoading(false);
           },
           (err) => {
             console.warn('[useAuth] Error al sincronizar el perfil desde Firestore:', err);
-            setLoading(false);
+            // En caso de error de red, no forzar Setup si ya teníamos datos en caché
+            if (!profileLoaded.current) {
+              setLoading(false);
+            }
           }
         );
       } else {
@@ -67,6 +78,7 @@ export function useAuth() {
           unsubProfile();
           unsubProfile = undefined;
         }
+        profileLoaded.current = false;
         reset();
       }
     });

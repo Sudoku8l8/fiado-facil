@@ -21,7 +21,7 @@ export function ClientsList() {
   useEffect(() => {
     const unsub = subscribeClients();
     return () => unsub();
-  }, [appUser?.storeName]);
+  }, [appUser?.uid]);
 
   const filtered = getFilteredClients();
   const sorted = [...filtered].sort((a, b) =>
