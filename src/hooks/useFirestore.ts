@@ -8,6 +8,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
   getDoc,
   getDocFromCache,
   getDocs,
@@ -321,11 +322,36 @@ export function useFirestore() {
     [appUser, storeName]
   );
 
+  /** Eliminar cliente (solo si deudaTotal === 0) */
+  const deleteClient = useCallback(
+    async (clientId: string) => {
+      const client = useClientStore.getState().clients.find((c) => c.id === clientId);
+      if (client && client.deudaTotal > 0) {
+        throw new Error(
+          `No se puede eliminar a un cliente con deuda pendiente (S/ ${client.deudaTotal.toFixed(2)}).`
+        );
+      }
+
+      const clientRef = doc(db, 'clientes', clientId);
+      const writeTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Write timeout')), 3000)
+      );
+
+      try {
+        await Promise.race([deleteDoc(clientRef), writeTimeout]);
+      } catch (err) {
+        console.warn('[useFirestore] deleteDoc client network timeout (eliminado localmente):', err);
+      }
+    },
+    []
+  );
+
   return {
     subscribeClients,
     subscribeMovements,
     getOrCreateClient,
     addDebt,
     addPayment,
+    deleteClient,
   };
 }

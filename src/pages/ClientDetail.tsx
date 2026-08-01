@@ -1,9 +1,10 @@
 // ============================================================
 // Flash Fiado — ClientDetail Page
 // Sprint 2: Historial de movimientos por cliente
+// Opción discreta de eliminación con bloqueo estricto si hay deuda
 // ============================================================
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
 import { OfflineBanner } from '../components/layout/OfflineBanner';
 import { useFirestore } from '../hooks/useFirestore';
@@ -14,15 +15,21 @@ import './ClientDetail.css';
 
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>();
-  const { subscribeMovements, addPayment } = useFirestore();
+  const navigate = useNavigate();
+  const { subscribeMovements, addPayment, deleteClient } = useFirestore();
   const { clients, movements, setMovements } = useClientStore();
 
   const client = clients.find((c) => c.id === clientId);
 
-  const [showPayForm, setShowPayForm] = useState(false);
-  const [payAmount, setPayAmount]     = useState('');
-  const [payLoading, setPayLoading]   = useState(false);
-  const [payError, setPayError]       = useState('');
+  const [showPayForm, setShowPayForm]       = useState(false);
+  const [payAmount, setPayAmount]           = useState('');
+  const [payLoading, setPayLoading]         = useState(false);
+  const [payError, setPayError]             = useState('');
+
+  // Estado del modal de eliminación discreto
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading]     = useState(false);
+  const [deleteError, setDeleteError]         = useState('');
 
   useEffect(() => {
     if (!clientId) return;
@@ -52,11 +59,49 @@ export function ClientDetail() {
     }
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!clientId || !client) return;
+    if (client.deudaTotal > 0) return; // Bloqueo estricto
+
+    setDeleteError('');
+    setDeleteLoading(true);
+    try {
+      await deleteClient(clientId);
+      setShowDeleteModal(false);
+      navigate('/clientes', { replace: true });
+    } catch (err: any) {
+      setDeleteError(err.message || 'Error al eliminar el cliente.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const level = getDebtLevel(client?.deudaTotal ?? 0);
+  const hasActiveDebt = (client?.deudaTotal ?? 0) > 0;
 
   return (
     <div className="app-shell">
-      <Header title={client?.nombre ?? 'Cliente'} showBack />
+      {/* Header con botón discreto de papelera (baja opacidad para evitar clicks accidentales) */}
+      <Header
+        title={client?.nombre ?? 'Cliente'}
+        showBack
+        rightAction={
+          client ? (
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => setShowDeleteModal(true)}
+              aria-label="Opción de cliente"
+              title="Opciones de cliente"
+              style={{ opacity: 0.35, padding: '6px' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          ) : null
+        }
+      />
       <OfflineBanner />
 
       <main className="page-content">
@@ -133,6 +178,80 @@ export function ClientDetail() {
           )}
         </section>
       </main>
+
+      {/* Modal Discreto de Eliminación con Regla de Deuda Cero */}
+      {showDeleteModal && client && (
+        <>
+          <div className="modal-backdrop" onClick={() => setShowDeleteModal(false)} />
+          <div className="modal-panel card" style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '90%',
+            maxWidth: '380px',
+            zIndex: 250,
+            padding: 'var(--space-6)',
+            textAlign: 'center',
+          }}>
+            {hasActiveDebt ? (
+              /* CASO A: BLOQUEO POR DEUDA ACTIVA */
+              <div className="delete-restricted-view">
+                <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-3)' }}>⚠️</div>
+                <h3 className="heading-md" style={{ marginBottom: 'var(--space-2)' }}>No se puede eliminar</h3>
+                <p className="body-sm text-secondary" style={{ marginBottom: 'var(--space-4)', lineHeight: '1.5' }}>
+                  <strong>{client.nombre}</strong> tiene una deuda pendiente de{' '}
+                  <span className="text-danger" style={{ fontWeight: 700 }}>
+                    {formatCurrency(client.deudaTotal)}
+                  </span>
+                  .<br />
+                  Debe abonar el monto total antes de poder eliminar su registro.
+                </p>
+                <button
+                  className="btn btn-primary btn-lg"
+                  onClick={() => setShowDeleteModal(false)}
+                  style={{ width: '100%' }}
+                >
+                  Entendido
+                </button>
+              </div>
+            ) : (
+              /* CASO B: DEUDA CERO (PERMITIR ELIMINAR CON CONFIRMACIÓN) */
+              <div className="delete-confirm-view">
+                <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-3)' }}>🗑️</div>
+                <h3 className="heading-md" style={{ marginBottom: 'var(--space-2)' }}>¿Eliminar cliente?</h3>
+                <p className="body-sm text-secondary" style={{ marginBottom: 'var(--space-4)' }}>
+                  ¿Estás seguro de eliminar a <strong>{client.nombre}</strong>?<br />
+                  Esta acción no se puede deshacer.
+                </p>
+
+                {deleteError && (
+                  <p className="dialog-error" style={{ marginBottom: 'var(--space-3)' }}>{deleteError}</p>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setShowDeleteModal(false)}
+                    disabled={deleteLoading}
+                    style={{ flex: 1 }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={handleDeleteConfirm}
+                    disabled={deleteLoading}
+                    style={{ flex: 1 }}
+                  >
+                    {deleteLoading ? <div className="spinner spinner-sm" /> : 'Sí, eliminar'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -9,9 +9,10 @@ import './Header.css';
 interface HeaderProps {
   title?: string;
   showBack?: boolean;
+  rightAction?: React.ReactNode;
 }
 
-export function Header({ title = 'Flash Fiado', showBack = false }: HeaderProps) {
+export function Header({ title = 'Flash Fiado', showBack = false, rightAction }: HeaderProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { appUser, signOut } = useAuth();
@@ -38,6 +39,9 @@ export function Header({ title = 'Flash Fiado', showBack = false }: HeaderProps)
       <h1 className="header-title">{title}</h1>
 
       <div className="header-right">
+        {/* Acciones personalizadas por página */}
+        {rightAction}
+
         {/* Indicador de conexión */}
         <div
           className={`connection-dot ${isOnline ? 'online' : 'offline'}`}
