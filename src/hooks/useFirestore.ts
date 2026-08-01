@@ -1,6 +1,6 @@
 // ============================================================
 // Flash Fiado — useFirestore Hook
-// Sprint 2+: CRUD de clientes y movimientos con soporte resiliente offline/AdBlock
+// CRUD de clientes y movimientos con resiliencia offline y estimación de timestamps
 // ============================================================
 import { useCallback } from 'react';
 import {
@@ -18,7 +18,6 @@ import {
   serverTimestamp,
   increment,
   where,
-  Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuthStore } from '../store/authStore';
@@ -48,13 +47,24 @@ export function useFirestore() {
     return onSnapshot(
       q,
       (snapshot) => {
-        const clients: Client[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          nombre: d.data().nombre,
-          deudaTotal: d.data().deudaTotal ?? 0,
-          fechaUltimoMovimiento: d.data().fechaUltimoMovimiento?.toDate() ?? null,
-          storeName: d.data().storeName,
-        }));
+        const clients: Client[] = snapshot.docs.map((d) => {
+          const data = d.data({ serverTimestamps: 'estimate' });
+          const rawDate = data.fechaUltimoMovimiento;
+          let lastMoveDate: Date | null = null;
+          if (rawDate?.toDate) {
+            lastMoveDate = rawDate.toDate();
+          } else if (rawDate instanceof Date) {
+            lastMoveDate = rawDate;
+          }
+
+          return {
+            id: d.id,
+            nombre: data.nombre,
+            deudaTotal: data.deudaTotal ?? 0,
+            fechaUltimoMovimiento: lastMoveDate,
+            storeName: data.storeName,
+          };
+        });
         setClients(clients);
         setLoading(false);
       },
@@ -147,18 +157,34 @@ export function useFirestore() {
     return onSnapshot(
       q,
       (snapshot) => {
-        const movements: Movement[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          clientId,
-          tipo: d.data().tipo as MovementType,
-          items: d.data().items as MovementItem[] | undefined,
-          producto: d.data().producto,
-          unidades: d.data().unidades,
-          monto: d.data().monto,
-          fecha: (d.data().fecha as Timestamp)?.toDate() ?? new Date(),
-          registradoPor: d.data().registradoPor,
-          registradoPorUid: d.data().registradoPorUid,
-        }));
+        const movements: Movement[] = snapshot.docs.map((d) => {
+          // Usar { serverTimestamps: 'estimate' } para evitar fechas nulas durante escrituras locales pendientes
+          const data = d.data({ serverTimestamps: 'estimate' });
+          const rawDate = data.fecha;
+          let dateObj: Date;
+          if (rawDate?.toDate) {
+            dateObj = rawDate.toDate();
+          } else if (rawDate instanceof Date) {
+            dateObj = rawDate;
+          } else if (typeof rawDate === 'number') {
+            dateObj = new Date(rawDate);
+          } else {
+            dateObj = new Date();
+          }
+
+          return {
+            id: d.id,
+            clientId,
+            tipo: data.tipo as MovementType,
+            items: data.items as MovementItem[] | undefined,
+            producto: data.producto,
+            unidades: data.unidades,
+            monto: data.monto,
+            fecha: dateObj,
+            registradoPor: data.registradoPor,
+            registradoPorUid: data.registradoPorUid,
+          };
+        });
         setMovements(movements);
       },
       (err) => {
@@ -187,14 +213,14 @@ export function useFirestore() {
       const clientId = await getOrCreateClient(params.clienteNombre);
 
       const movRef = doc(collection(db, 'clientes', clientId, 'movimientos'));
-      
+
       const itemsList = params.items ?? [];
-      const productSummary = params.producto || (itemsList.length > 0 
-        ? itemsList.map(i => `${i.unidades > 1 ? i.unidades + ' ' : ''}${i.producto}`).join(', ') 
+      const productSummary = params.producto || (itemsList.length > 0
+        ? itemsList.map(i => `${i.unidades > 1 ? i.unidades + ' ' : ''}${i.producto}`).join(', ')
         : '');
-      
-      const totalUnits = params.unidades || (itemsList.length > 0 
-        ? itemsList.reduce((sum, i) => sum + i.unidades, 0) 
+
+      const totalUnits = params.unidades || (itemsList.length > 0
+        ? itemsList.reduce((sum, i) => sum + i.unidades, 0)
         : 1);
 
       const movData = {
@@ -252,13 +278,13 @@ export function useFirestore() {
       } else {
         try {
           const cacheSnap = await getDocFromCache(doc(db, 'clientes', params.clientId));
-          currentDebt = cacheSnap.data()?.deudaTotal ?? 0;
+          currentDebt = cacheSnap.data({ serverTimestamps: 'estimate' })?.deudaTotal ?? 0;
         } catch {
           const snap = await Promise.race([
             getDoc(doc(db, 'clientes', params.clientId)),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500)),
           ]).catch(() => null);
-          currentDebt = snap?.data()?.deudaTotal ?? 0;
+          currentDebt = snap?.data({ serverTimestamps: 'estimate' })?.deudaTotal ?? 0;
         }
       }
 
